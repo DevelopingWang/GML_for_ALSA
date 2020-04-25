@@ -32,17 +32,17 @@ for rel_type in ['asp2asp_sequence_oppo','asp2asp_intrasent_simi','asp2asp_seque
 
 #再处理word型特征
 for item in all_datas[3]:
-        feature['feature_id'] = feature_id
-        feature['feature_name'] = item.name1
-        feature['feature_type'] =item.rel_type
-        key = var_id_map[item.name2]
-        weight_value = [0,item.name1]  #暂时把feature_value设置为word
-        weight_elem[key] = weight_value
-        feature['weight'] = copy(weight_elem)
-        features.append(copy(feature))
-        feature_id += 1
-        weight_elem.clear()
-        feature.clear()
+    feature['feature_id'] = feature_id
+    feature['feature_name'] = item.name1
+    feature['feature_type'] =item.rel_type
+    key = var_id_map[item.name2]
+    weight_value = [0,item.name1]  #暂时把feature_value设置为word
+    weight_elem[key] = weight_value
+    feature['weight'] = copy(weight_elem)
+    features.append(copy(feature))
+    feature_id += 1
+    weight_elem.clear()
+    feature.clear()
 
 #整理变量
 variables=list()
@@ -64,7 +64,7 @@ for id,item in enumerate(all_datas[0]):
     for feature in features:
         for kv in feature['weight'].items():
             if type(kv[0]) == tuple and id in kv[0]:
-                feature_set[kv[0]] = kv[1][1]
+                feature_set[kv[0]] = kv[1]
             elif id == kv[0]:
                 feature_set[kv[0]] = kv[1][1]
     variable['feature_set'] = copy(feature_set)
