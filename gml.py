@@ -7,7 +7,10 @@ from scipy.sparse import *
 from scipy.stats import t
 from sklearn.linear_model import LinearRegression
 import numbskull
+from easyinstancelabeling import EasyInstanceLabeling
+from featureextract import FeatureExtract
 from numbskull.numbskulltypes import *
+import data_pre
 import random
 import logging
 import time
@@ -16,7 +19,7 @@ import pandas as pd
 from sklearn.metrics import accuracy_score
 from sklearn import metrics
 
-
+from pyds import MassFunction
 # class FeatureExtract:
 #     pass
 # class EasyInstanceLabeling:
@@ -199,11 +202,15 @@ class GML:
     evidence_interval_count = 10  # 区间个数10
     interval_evidence_count = 200  # 每个区间的变量数为200
 
+    # zh add for ALSA
+    word_evi_uncer_degree = 0.1
+    relation_evi_uncer_degree = 0.3
+
     # update_cache = 10
     # openpweight = 100
 
-    def __init__(self,dataname,datapath,variables, features, edges, easys, top_m=2000, top_k=10, update_proportion=0.01,
-                 tau_and_regression_bound=10,balance = False):
+    def __init__(self,dataname,datapath,variables, features, edges, easys, top_m=2000, top_k=10,
+                 update_proportion=0.01, tau_and_regression_bound=10,balance = False):
         '''
         todo:
              1.目前暂不知为了支持binary_relation需要如何修改数据结构
@@ -232,10 +239,102 @@ class GML:
         # GML.delta = delta
         # GML.tau_and_regression_bound = tau_and_regression_bound
         # GML.effective_training_count_threshold = effective_training_count_threshold
+
+        # zh add for ALSA
+        # key:vid   value: [(n_samples, neg_prob, pos_prob),(n_samples, neg_prob, pos_prob)]
+        self.dict_unlabvar_feature_evis = {}
+
         logging.basicConfig(
             level=logging.INFO,  # 设置输出信息等级
             format='%(asctime)s - %(name)s - [%(levelname)s]: %(message)s'  # 设置输出格式
         )
+    # zh add for ALSA
+    def zh_test(self):
+        self.easy_instance_labeling()
+        self.separate_variables()
+        self.get_unlabvar_feature_evis()
+        self.get_unlabvar_evi_support()
+
+    def get_unlabvar_feature_evis(self):
+        for vid in self.poential_variables_id:
+            vindex = self.find_in_variables(vid)
+            feature_set = self.variables[vindex]["feature_set"]
+            pos = 0
+            neg = 0
+            dic_temp = []
+            for key, value in feature_set.items():
+                # 如果是词特征
+                if self.features[key]["feature_type"] == "token":
+                    # 统计pos，neg的比例
+                    polarity = self.features[key]["polarity"]
+                    n_samples = len(polarity)
+
+                    for k, v in polarity.items():
+                        if v == "positive":
+                            pos += 1
+                        if v == "negative":
+                            neg += 1
+                    if n_samples != 0:
+                        dic_temp.append((n_samples, neg/n_samples, pos/n_samples))
+            self.dict_unlabvar_feature_evis[vid] = dic_temp
+
+    def get_unlabvar_evi_support(self):
+        dict_unlabvar_propensity_masses = {}  # key: unlabeled variable
+                                              # value: mass functions for different evidences
+        for vid in self.poential_variables_id:
+            mass_functions_tmp = []
+
+            # 关系特征由wcy实现
+            # if dict_unlabvar_relation_evis.get(unlabel_var):
+            #     for (label_var_name, rel_type) in dict_unlabvar_relation_evis[unlabel_var]:
+            #         # rel_uncer_degree = get_relation_uncer_degree(rel_type)
+            #         # rel_acc = get_relation_acc(rel_type)
+            #         rel_acc = dict_rel_acc[rel_type]
+            #         mass_functions_tmp.append(
+            #             construct_mass_function_for_propensity(relation_evi_uncer_degree, rel_acc, 1 - rel_acc))
+
+            # 词特征
+            if self.dict_unlabvar_feature_evis.get(vid):
+                for (n_samples, neg_prob, pos_prob) in self.dict_unlabvar_feature_evis[vid]:
+                    mass_functions_tmp.append(self.construct_mass_function_for_propensity(
+                        GML.word_evi_uncer_degree, max(pos_prob, neg_prob), min(pos_prob, neg_prob)))
+
+            if len(mass_functions_tmp) > 0:
+                dict_unlabvar_propensity_masses[vid] = mass_functions_tmp
+
+        for unlabel_var, mass_funcs in dict_unlabvar_propensity_masses.items():
+            combined_mass = self.labeling_propensity_with_ds(mass_funcs)
+            # value: combined mass function ({{'l'}:0.9574468085106382; {'u'}:0.04255319148936169; {'l', 'u'}:0.0})
+            index = self.find_in_variables(unlabel_var)
+            self.variables[index]["evidential_support"] = combined_mass["l"]
+            # print()
+
+
+
+    def construct_mass_function_for_propensity(self, uncertain_degree, label_prob, unlabel_prob):
+        '''
+        # l: support for labeling
+        # u: support for unalbeling
+        '''
+        return MassFunction({'l': (1 - uncertain_degree) * label_prob,
+                             'u': (1 - uncertain_degree) * unlabel_prob,
+                             'lu': uncertain_degree})
+
+    def labeling_propensity_with_ds(self, mass_functions):
+        combined_mass = self.combine_evidences_with_ds(mass_functions, normalization=True)
+        return combined_mass
+
+    def combine_evidences_with_ds(self, mass_functions, normalization):
+        # combine evidences from different sources
+        if len(mass_functions) < 2:
+            combined_mass = mass_functions[0]
+        else:
+            combined_mass = mass_functions[0].combine_conjunctive(mass_functions[1], normalization)
+
+            if len(mass_functions) > 2:
+                for mass_func in mass_functions[2: len(mass_functions)]:
+                    combined_mass = combined_mass.combine_conjunctive(mass_func, normalization)
+        return combined_mass
 
     def create_csr_matrix(self):
         # 创建稀疏矩阵存储所有variable的所有featureValue，用于后续计算Evidential Support
@@ -920,28 +1019,28 @@ class GML:
 
 
 if __name__ == '__main__':
-    # variables, features, edges, easys = data_pre.get_data()
+    variables, features, edges, easys = data_pre.get_data()
     # FeatureExtract()
     warnings.filterwarnings('ignore')  # 过滤掉warning输出
-    begin_time = time.time()
+    # begin_time = time.time()
     dataname = 'songs'
     datapath = 'ProcessedCache/'
-    with open(datapath+dataname+'_variables.pkl', 'rb') as v:
-        variables = pickle.load(v)
-    with open(datapath+dataname+'_features.pkl', 'rb') as f:
-        features = pickle.load(f)
-    with open(datapath+dataname+'_edges.pkl', 'rb') as e:
-        edges = pickle.load(e)
-    with open(datapath+dataname+'_easys.pkl', 'rb') as a:
-        easys = pickle.load(a)
-    v.close()
-    f.close()
-    e.close()
-    a.close()
+    # with open(datapath+dataname+'_variables.pkl', 'rb') as v:
+    #     variables = pickle.load(v)
+    # with open(datapath+dataname+'_features.pkl', 'rb') as f:
+    #     features = pickle.load(f)
+    # with open(datapath+dataname+'_edges.pkl', 'rb') as e:
+    #     edges = pickle.load(e)
+    # easys = EasyInstanceLabeling.load_easy_instance_from_file(datapath+dataname+'_easys.csv')
     graph = GML(dataname, datapath,variables, features, edges, easys, top_m=2000, top_k=10, update_proportion=0.01,
                 tau_and_regression_bound=10,balance = False)
-    graph.init()
-    graph.inference()
-    General.print_results(dataname,datapath)
-    end_time = time.time()
-    print('Running time: %s Seconds' % (end_time - begin_time))
+    graph.zh_test()
+    print("test over!")
+    for i in range(len(variables)):
+        print("----------", i)
+        print(graph.variables[i]["evidential_support"])
+    # graph.init()
+    # graph.inference()
+    # General.print_results(dataname,datapath)
+    # end_time = time.time()
+    # print('Running time: %s Seconds' % (end_time - begin_time))
