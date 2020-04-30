@@ -43,6 +43,13 @@ feature
       (varid3,varid4]):[weight_value1,feature_value1]
       ...
     }
+    # zh add for ALSA
+    'polarity':
+    {
+        var_id1："positive"
+        var_id2："negative"
+        ...
+    }
 }
 
 边
