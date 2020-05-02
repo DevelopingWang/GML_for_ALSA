@@ -202,17 +202,14 @@ class GML:
     # update_cache = 10
     # openpweight = 100
 
-    def __init__(self,dataname,datapath,variables, features, edges, easys, top_m=2000, top_k=10, update_proportion=0.01,
+    def __init__(self,dataname,datapath,variables, features, easys, top_m=2000, top_k=10, update_proportion=0.01,
                  tau_and_regression_bound=10,balance = False):
         '''
-        todo:
-             1.目前暂不知为了支持binary_relation需要如何修改数据结构
         '''
         self.dataname = dataname
         self.datapath = datapath
         self.variables = variables
         self.features = features
-        self.edges = edges
         self.easys = easys
         self.features_easys = dict()  # 存放所有features的所有easy的featurevalue   :feature_id:[[value1,bound],[value2,bound]...]
         self.observed_variables_id = set()  # 所有观测变量集合,随推理实时更新
@@ -226,12 +223,9 @@ class GML:
         self.evidence_interval = None
         self.tau_and_regression_bound = tau_and_regression_bound
         self.balance = balance
-        # self.cache_subgraph = cache_subgraph   #是否缓存因子图
-        # self.evidence_interval_count = evidence_interval_count   #证据区间的个数
-        # self.interval_evidence_count = interval_evidence_count   #每个区间的证据个数
-        # GML.delta = delta
-        # GML.tau_and_regression_bound = tau_and_regression_bound
-        # GML.effective_training_count_threshold = effective_training_count_threshold
+        self.separate_variables()
+        if self.easys != None:
+            self.label_easy()
         logging.basicConfig(
             level=logging.INFO,  # 设置输出信息等级
             format='%(asctime)s - %(name)s - [%(levelname)s]: %(message)s'  # 设置输出格式
@@ -252,12 +246,8 @@ class GML:
 
     def init(self):
         '''
-        处理此对象推理所需的全部准备工作
+        处理此对象推理所需的前期准备工作
         '''
-        self.easy_instance_labeling()
-        self.separate_variables()
-        self.init_evidence()  # 初始化每个feature的evidence_interval属性
-        self.create_csr_matrix()  # 创建用于计算Evidential support的稀疏矩阵
 
     def find_in_variables(self, var_id):
         for i in range(len(self.variables)):
@@ -265,8 +255,8 @@ class GML:
                 return i
                 break
 
-    def easy_instance_labeling(self):
-        '''根据提供的easy列表修改标出变量中的Easy'''
+    def label_easy(self):
+        '''根据提供的easy列表标出variables中的Easy,如果variables已经包含easy信息，则不再需要'''
         for var in self.variables:
             var['is_easy'] = False
             var['is_evidence'] = False
@@ -451,7 +441,7 @@ class GML:
 
     def init_evidence(self):
         '''
-        初始化所有feature的evidence
+        初始化所有feature的evidence_interval属性和evidence_count属性
         :return:
         '''
         self.evidence_interval = self.init_evidence_interval()
@@ -469,18 +459,18 @@ class GML:
                             evidence_count += 1
             feature['evidence_count'] = evidence_count
 
-    def select_evidence(self, var_id):
+    def select_evidence_by_interval(self, var_id):
         '''
-        为指定的隐变量挑一定数量的证据变量：目前是每个feature划分evidence_interval_count个区间，每个区间挑不超过interval_evidence_count个
-        同时确定边
+        按照feature_value的区间为指定的隐变量挑一定数量的证据变量,适用于ER
+        目前是每个feature划分evidence_interval_count个区间，每个区间挑不超过interval_evidence_count个
         输入：var_id -- 隐变量id
         输出：
-        evidence_set --证据变量的id集合
-        partial_edges -- 边的集合
+        connected_var_set --证据变量的id集合
+        connected_edge_set -- 边的集合
         connected_feature_set --能用得上的feature的集合
         '''
-        evidence_set = set()
-        partial_edges = list()
+        connected_var_set = set()
+        connected_edge_set = set()
         connected_feature_set = set()  # 记录此隐变量上建因子图时实际保留了哪些feature
         feature_set = self.variables[self.find_in_variables(var_id)]['feature_set']
         for feature_id in feature_set.keys():
@@ -490,17 +480,95 @@ class GML:
                 for interval in evidence_interval:
                     # 如果这个区间的证据变量小于200，就全加进来
                     if len(interval) <= GML.interval_evidence_count:
-                        evidence_set = evidence_set.union(interval)
+                        connected_var_set = connected_var_set.union(interval)
                         for id in interval:
-                            partial_edges.append([feature_id, id])
+                            connected_edge_set.add((feature_id, id))
                     else:
                         # 如果大于200,就随机采样200个
                         sample = random.sample(list(interval), GML.interval_evidence_count)
-                        evidence_set = evidence_set.union(sample)
+                        connected_var_set = connected_var_set.union(sample)
                         for id in sample:
-                            partial_edges.append([feature_id, id])
-        logging.info("var-" + str(var_id) + " select evidence finished")
-        return evidence_set, partial_edges, connected_feature_set
+                            connected_edge_set.add((feature_id, id))
+
+        logging.info("var-" + str(var_id) + " select evidence by interval finished")
+        return connected_var_set, connected_edge_set, connected_feature_set
+
+    def select_evidence_by_realtion(self, k_id_list,subgraph_limit_num=1000,k_hop=2):
+        '''为选出的top_k个隐变量挑选证据，适用于ALSA
+        输入：
+        var_id_list --- k个变量id的列表
+        subgraph_limit_num  --子图允许的最大变量个数
+        k_hop   -- 找相邻变量的跳数
+
+        输出：
+        connected_var_set --证据变量的id集合
+        connected_edge_set -- 边的集合
+        connected_feature_set --能用得上的feature的集合
+        '''
+        connected_var_set = set()
+        connected_edge_set = set()
+        connected_feature_set = set()  # 记录此隐变量上建因子图时实际保留了哪些feature
+        connected_var_set = connected_var_set.union(set(k_id_list))
+        current_var_set = connected_var_set
+        next_var_set = set()
+        # 先找relation型特征的k-hop跳的证据变量(需确定此处是否只添加证据变量，不包括隐变量)
+        for k in range(k_hop):
+            for var_id in current_var_set:
+                feature_set = self.variables[self.find_in_variables(var_id)]['feature_set']
+                for feature_id in feature_set.keys():
+                    if self.features[feature_id]['feature_type'] == 'binary_feature':
+                        weight = self.features[feature_id]['weight']
+                        for id in weight.keys():
+                            if type(id) == tuple and var_id in id:
+                                another_var_id = id[0] if id[0] != var_id else id[1]
+                                if self.variables[self.find_in_variables(another_var_id)]['is_evidence'] == True:
+                                    next_var_set.add(another_var_id)
+                                    connected_feature_set.add(feature_id)
+                                    connected_edge_set.add((feature_id,id))
+                connected_var_set = connected_var_set.union(next_var_set)
+                current_var_set = next_var_set
+                next_var_set.clear()
+        #再找和这k个变量共享word型feature的变量（先加证据变量，如果没有超过最大变量限制，再加隐变量）
+        subgraph_capacity = subgraph_limit_num - len(connected_var_set)
+        unary_connected_unlabeled_var = list()
+        unary_connected_unlabeled_edge = list()
+        unary_connected_unlabeled_feature = list()
+        unary_connected_evidence_var = list()
+        unary_connected_evidence_edge = list()
+        unary_connected_evidence_feature = list()
+        for var_id in k_id_list:
+            feature_set = self.variables[self.find_in_variables(var_id)]['feature_set']
+            for feature_id in feature_set.keys():
+                if self.features[feature_id]['feature_type'] == 'unary_feature':
+                    weight = self.features[feature_id]['weight']
+                    for id in weight.keys():
+                        if self.variables[self.find_in_variables(id)]['is_evidence'] == True:
+                            unary_connected_evidence_var.append(id)
+                            unary_connected_evidence_feature.append(feature_id)
+                            unary_connected_evidence_edge.append((feature_id,id))
+                        else:
+                            unary_connected_unlabeled_var.append(id)
+                            unary_connected_unlabeled_feature.append(feature_id)
+                            unary_connected_unlabeled_edge.append((feature_id, id))
+        #限制子图规模大小
+        if(len(unary_connected_evidence_var) <= subgraph_capacity ):
+            connected_var_set = connected_var_set.union(set(unary_connected_evidence_var))
+            connected_feature_set = connected_feature_set.union((set(unary_connected_evidence_feature)))
+            connected_edge_set = connected_edge_set.union(set(unary_connected_evidence_edge))
+            if(len(unary_connected_unlabeled_var) <= (subgraph_capacity-len(unary_connected_evidence_var))):
+                connected_var_set = connected_var_set.union(set(unary_connected_unlabeled_var))
+                connected_feature_set = connected_feature_set.union((set(unary_connected_unlabeled_feature)))
+                connected_edge_set = connected_edge_set.union(set(unary_connected_unlabeled_edge))
+            else:
+                connected_var_set = connected_var_set.union(set(unary_connected_unlabeled_var[:subgraph_capacity-len(unary_connected_evidence_var)]))
+                connected_feature_set = connected_feature_set.union(set(unary_connected_unlabeled_feature[:subgraph_capacity-len(unary_connected_evidence_var)]))
+                connected_edge_set = connected_edge_set.union(set(unary_connected_unlabeled_edge[:subgraph_capacity-len(unary_connected_evidence_var)]))
+        else:
+            connected_var_set = connected_var_set.union(set(unary_connected_evidence_var[:subgraph_capacity]))
+            connected_feature_set = connected_feature_set.union((set(unary_connected_evidence_feature[:subgraph_capacity])))
+            connected_edge_set = connected_edge_set.union(set(unary_connected_evidence_edge[:subgraph_capacity]))
+        logging.info("select evidece by relation finished")
+        return connected_var_set, connected_edge_set, connected_feature_set
 
     def init_tau_and_alpha(self, feature_set):
         '''对给定的feature计算tau和alpha
@@ -551,7 +619,7 @@ class GML:
         '''
         var_index = self.find_in_variables(var_id)
         feature_set = self.variables[var_index]['feature_set']
-        evidences = self.select_evidence(var_id)
+        evidences = self.select_evidence_by_interval(var_id)
         # 存储选出的证据和实时的变量和特征
         # with open("ProcessedCache/" + str(var_id) + '_evidences.pkl', 'wb') as e:
         #     pickle.dump(evidences, e)
@@ -571,11 +639,11 @@ class GML:
                     label0_var.add(var_id)
             sampled_label0_var = set(random.sample(list(label0_var), len(label1_var)))
             new_evidence_set = label1_var.union(sampled_label0_var)
-            new_partial_edges = list()
+            new_partial_edges = set()
             new_connected_feature_set = set()
             for edge in partial_edges:
                 if edge[1] in new_evidence_set:
-                    new_partial_edges.append(edge)
+                    new_partial_edges.add(edge)
                     new_connected_feature_set.add(edge[0])
             evidence_set = new_evidence_set
             partial_edges = new_partial_edges
@@ -666,7 +734,7 @@ class GML:
         '''
         index = self.find_in_variables(var_id)
         feature_set = self.variables[index]['feature_set']
-        evidences = self.select_evidence(var_id)
+        evidences = self.select_evidence_by_interval(var_id)
         # 存储选出的证据和实时的变量和特征
         # with open("ProcessedCache/" + str(var_id) + '_evidences.pkl', 'wb') as e:
         #     pickle.dump(evidences, e)
@@ -868,6 +936,8 @@ class GML:
         inferenced_variables_id = set()  # 一轮更新期间已经建立过因子图并推理的隐变量
         for feature in self.features:
             update_feature_set.add(feature['feature_id'])
+        self.init_evidence()  # 初始化每个feature的evidence_interval属性
+        self.create_csr_matrix()  # 创建用于计算Evidential support的稀疏矩阵
         self.influence_modeling(update_feature_set)
         update_feature_set.clear()
         self.evidential_support()
@@ -924,23 +994,23 @@ if __name__ == '__main__':
     # FeatureExtract()
     warnings.filterwarnings('ignore')  # 过滤掉warning输出
     begin_time = time.time()
-    dataname = 'songs'
+    dataname = 'dblp'
     datapath = 'ProcessedCache/'
-    with open(datapath+dataname+'_variables.pkl', 'rb') as v:
+    with open('variables.pkl', 'rb') as v:
         variables = pickle.load(v)
-    with open(datapath+dataname+'_features.pkl', 'rb') as f:
+        v.close()
+    with open('features.pkl', 'rb') as f:
         features = pickle.load(f)
-    with open(datapath+dataname+'_edges.pkl', 'rb') as e:
-        edges = pickle.load(e)
-    with open(datapath+dataname+'_easys.pkl', 'rb') as a:
-        easys = pickle.load(a)
-    v.close()
-    f.close()
-    e.close()
-    a.close()
-    graph = GML(dataname, datapath,variables, features, edges, easys, top_m=2000, top_k=10, update_proportion=0.01,
+        f.close()
+    # with open(datapath+dataname+'_easys.pkl', 'rb') as a:
+    #     easys = pickle.load(a)
+    #     a.close()
+
+    graph = GML(dataname, datapath,variables, features, easys = None,top_m=2000, top_k=10, update_proportion=0.01,
                 tau_and_regression_bound=10,balance = False)
     graph.init()
+    k_id_list = [13,73,14]
+    graph.select_evidence_by_realtion(k_id_list)
     graph.inference()
     General.print_results(dataname,datapath)
     end_time = time.time()
