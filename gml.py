@@ -292,7 +292,7 @@ class GML:
             update_feature_set.add(feature['feature_id'])
         self.evidential_support(update_feature_set)
         update_feature_set.clear()
-        self.approximate_probability_estimation(list(self.poential_variables_set))
+        gml_utils.approximate_probability_estimation(self.variables,list(self.poential_variables_set))
         logging.info("approximate_probability calculate finished")
         while len(self.poential_variables_set) > 0:
             # 当标记的变量数目达到update_cache时，重新回归并计算evidential support
@@ -302,7 +302,7 @@ class GML:
                     for feature_id in self.variables[var_index]['feature_set'].keys():
                         update_feature_set.add(feature_id)
                 self.evidential_support(update_feature_set)
-                self.approximate_probability_estimation(list(self.poential_variables_set))
+                gml_utils.approximate_probability_estimation(self.variables,list(self.poential_variables_set))
                 logging.info("approximate_probability calculate finished")
                 labeled_var = 0
                 update_feature_set.clear()
@@ -366,7 +366,6 @@ class GML:
         print("hards f1_score: " + str(metrics.f1_score(hards_true_label, hards_pred_label)))
 
 if __name__ == '__main__':
-
     warnings.filterwarnings('ignore')  #过滤掉warning输出
     begin_time = time.time()
     easys = list()
