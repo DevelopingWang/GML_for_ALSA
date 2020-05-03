@@ -7,10 +7,10 @@ from scipy.sparse import *
 from scipy.stats import t
 from sklearn.linear_model import LinearRegression
 import numbskull
-from easyinstancelabeling import EasyInstanceLabeling
-from featureextract import FeatureExtract
+# from easyinstancelabeling import EasyInstanceLabeling
+# from featureextract import FeatureExtract
 from numbskull.numbskulltypes import *
-import data_pre
+# import data_pre
 import random
 import logging
 import time
@@ -264,15 +264,16 @@ class GML:
             dic_temp = []
             for key, value in feature_set.items():
                 # 如果是词特征
-                if self.features[key]["feature_type"] == "token":
+                if self.features[key]["feature_type"] == "fea2asp_ngramfea_simi":
                     # 统计pos，neg的比例
-                    polarity = self.features[key]["polarity"]
-                    n_samples = len(polarity)
+                    weight = self.features[key]["weight"]
+                    n_samples = len(weight)
 
-                    for k, v in polarity.items():
-                        if v == "positive":
+                    for k, v in weight.items():
+                        vindex_temp = self.find_in_variables(k)
+                        if self.variables[vindex_temp]["label"] == 1:
                             pos += 1
-                        if v == "negative":
+                        if self.variables[vindex_temp]["label"] == 0:
                             neg += 1
                     if n_samples != 0:
                         dic_temp.append((n_samples, neg/n_samples, pos/n_samples))
@@ -1019,7 +1020,7 @@ class GML:
 
 
 if __name__ == '__main__':
-    variables, features, edges, easys = data_pre.get_data()
+    # variables, features, edges, easys = data_pre.get_data()
     # FeatureExtract()
     warnings.filterwarnings('ignore')  # 过滤掉warning输出
     # begin_time = time.time()
