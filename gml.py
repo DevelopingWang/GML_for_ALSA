@@ -822,6 +822,94 @@ class GML:
         # with open("ProcessedCache/" + str(var_id) + "_subgraph.pkl",'wb') as s:
         #     pickle.dump(subgraph, s)
         return weight, variable, factor, fmap, domain_mask, edges_num, var_map, feature_map_weight
+    
+    def construct_subgraph_for_ALSA(self, k_id_list):
+        evidences = self.select_evidence_by_realtion(k_id_list)
+        connected_var_set, connected_edge_set, connected_feature_set = evidences
+
+        var_map = dict()   #用来记录self.variables与numbskull的variable变量的映射-(self,numbskull)
+        #初始化变量
+        var_num = len(connected_var_set)
+        variable = np.zeros(var_num, Variable)
+        i = 0
+        for var_id in connected_var_set:
+            var_index = self.find_in_variables(var_id)
+            variable[i]["isEvidence"] = self.variables[var_index]['is_evidence']
+            variable[i]["initialValue"] = self.variables[var_index]['label']
+            variable[i]["dataType"] = 0  
+            variable[i]["cardinality"] = 2
+            var_map[var_id] = i     #一一记录
+            i += 1
+
+        binary = []  #双因子数组，元素为 [(var_id, var_id), weight]
+        unary = []   #单因子数组，元素为 [feature_id, weight]
+        unary_factor_num = 0    #单因子个数
+        for fea_id in connected_feature_set:
+            if self.features[fea_id]['feature_type'] == 'binary_feature':
+                for (feature_id, id) in connected_edge_set:
+                    if fea_id == feature_id and type(id) == tuple:
+                        binary.append([id, self.features[fea_id]['weight'][id][0]])
+            else:
+                w = list(self.features[fea_id]['weight'].values())[0][0]  #[[2.0, '["\'m", \'pleas\']'], [2.0, '["\'m", \'pleas\']']] 得到初始权重2.0
+                unary_factor_num += len(self.features[fea_id]['weight'])
+                unary.append([fea_id, w])
+
+        #初始化weight,多个单因子可以共享同一个weight
+        weight = np.zeros(len(unary) + len(binary), Weight)  #weight的数目单因子数目+双因子数目
+        weight_index = 0
+        for unary_factor in unary:
+            weight[weight_index]["isFixed"] = False
+            weight[weight_index]["parameterize"] = False
+            weight[weight_index]["initialValue"] = unary_factor[1]
+            weight_index += 1
+        for binary_factor in binary:
+            weight[weight_index]["isFixed"] = False
+            weight[weight_index]["parameterize"] = False
+            weight[weight_index]["initialValue"] = binary_factor[1]
+            weight_index += 1
+
+        # 按照numbskull要求初始化factor,fmap,edges
+        factor_num = len(binary) + unary_factor_num
+        factor = np.zeros(factor_num, Factor) 
+        edges_num = unary_factor_num + 2 * len(binary)
+        fmap = np.zeros(edges_num, FactorToVar)
+        domain_mask = np.zeros(var_num, np.bool)
+
+        factor_index = 0
+        fmp_index = 0
+        weight_id = 0
+        for [feature_id, w] in unary:
+            for var_id in self.features[feature_id]['weight'].keys():
+                factor[factor_index]["factorFunction"] = 18
+                factor[factor_index]["weightId"] = weight_id
+                factor[factor_index]["featureValue"] = 1
+                factor[factor_index]["arity"] = 1  # 单因子度为1
+                factor[factor_index]["ftv_offset"] = fmp_index  # 偏移量每次加1
+
+                fmap[fmp_index]["vid"] = var_map[var_id]
+                fmap[fmp_index]["theta"] = 1
+                fmp_index += 1
+                factor_index += 1
+            weight_id += 1
+        for [(var_id1, var_id2), w] in binary:
+            factor[factor_index]["factorFunction"] = 9
+            factor[factor_index]["weightId"] = weight_id
+            factor[factor_index]["featureValue"] = 1
+            factor[factor_index]["arity"] = 2  # 双因子度为2
+            factor[factor_index]["ftv_offset"] = fmp_index  # 偏移量每次加2
+
+            fmap[fmp_index]["vid"] = var_map[var_id1]
+            fmap[fmp_index]["theta"] = 1
+            fmap[fmp_index + 1]["vid"] = var_map[var_id2]
+            fmap[fmp_index + 1]["theta"] = 1
+            fmp_index += 2
+            factor_index += 1
+            weight_id += 1
+
+        logging.info("construct subgraph succeed")
+        
+        return weight, variable, factor, fmap, domain_mask, edges_num, var_map
+
 
     def inference_subgraph(self, var_id):
         '''推理子图
