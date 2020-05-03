@@ -1,4 +1,5 @@
 #提供挑选证据的一些方法
+import logging
 import random
 
 
@@ -40,8 +41,7 @@ class EvidenceSelect:
                         connected_var_set = connected_var_set.union(sample)
                         for id in sample:
                             connected_edge_set.add((feature_id, id))
-
-        print("var-" + str(var_id) + " select evidence by interval finished")
+        logging.info("var-" + str(var_id) + " select evidence by interval finished")
         return connected_var_set, connected_edge_set, connected_feature_set
 
     def select_evidence_by_realtion(self, var_id_list, subgraph_limit_num=1000, k_hop=2):
@@ -118,5 +118,5 @@ class EvidenceSelect:
             connected_var_set = connected_var_set.union(set(unary_connected_evidence_var[:subgraph_capacity]))
             connected_feature_set = connected_feature_set.union((set(unary_connected_evidence_feature[:subgraph_capacity])))
             connected_edge_set = connected_edge_set.union(set(unary_connected_evidence_edge[:subgraph_capacity]))
-        print("select evidece by relation finished")
+        logging.info("select evidece by relation finished")
         return connected_var_set, connected_edge_set, connected_feature_set

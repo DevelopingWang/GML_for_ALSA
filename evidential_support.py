@@ -34,57 +34,57 @@ class Regression:
                 self.balance_weight_y0_count += 1
         self.perform()
 
-        def perform(self):
-            '''执行线性回归'''
-            self.N = np.size(self.X)
-            if self.N <= self.effective_training_count:
-                self.regression = None
-                self.residual = None
-                self.meanX = None
-                self.variance = None
-                self.k = None
-                self.b = None
-            else:
-                sample_weight_list = None
-                if self.balance_weight_y1_count > 0 and self.balance_weight_y0_count > 0:
-                    sample_weight_list = list()
-                    sample_weight = float(self.balance_weight_y0_count) / self.balance_weight_y1_count
-                    for y in self.Y:
-                        if y[0] > 0:
-                            sample_weight_list.append(sample_weight)
-                        else:
-                            sample_weight_list.append(1)
-                self.regression = LinearRegression(copy_X=True, fit_intercept=True, n_jobs=self.n_job).fit(self.X, self.Y,
-                                                                                                           sample_weight=sample_weight_list)
-                self.residual = np.sum((self.regression.predict(self.X) - self.Y) ** 2) / (self.N - 2)
-                self.meanX = np.mean(self.X)  # 此feature的所有证据变量的feature_value的平均值
-                self.variance = np.sum((self.X - self.meanX) ** 2)
-                z = self.regression.predict(np.array([0, 1]).reshape(-1, 1))
-                self.k = (z[1] - z[0])[0]
-                self.b = z[0][0]
-
-        def append(self, appendx, appendy):
-            '''实时添加训练数据'''
-            self.X = np.append(self.X, [[appendx]], axis=0)
-            self.Y = np.append(self.Y, [[appendy]], axis=0)
-            if appendy > 0:
-                self.balance_weight_y1_count += 1
-            else:
-                self.balance_weight_y0_count += 1
-            self.perform()
-
-        def disable(self, delx, dely):
-            '''实时删除训练数据'''
-            for index in range(0, len(self.X)):
-                if self.X[index][0] == delx and self.Y[index][0] == dely:
-                    self.X = np.delete(self.X, index, axis=0)
-                    self.Y = np.delete(self.Y, index, axis=0)
-                    if dely > 0:
-                        self.balance_weight_y1_count -= 1
+    def perform(self):
+        '''执行线性回归'''
+        self.N = np.size(self.X)
+        if self.N <= self.effective_training_count:
+            self.regression = None
+            self.residual = None
+            self.meanX = None
+            self.variance = None
+            self.k = None
+            self.b = None
+        else:
+            sample_weight_list = None
+            if self.balance_weight_y1_count > 0 and self.balance_weight_y0_count > 0:
+                sample_weight_list = list()
+                sample_weight = float(self.balance_weight_y0_count) / self.balance_weight_y1_count
+                for y in self.Y:
+                    if y[0] > 0:
+                        sample_weight_list.append(sample_weight)
                     else:
-                        self.balance_weight_y0_count -= 1
-                    break
-            self.perform()
+                        sample_weight_list.append(1)
+            self.regression = LinearRegression(copy_X=True, fit_intercept=True, n_jobs=self.n_job).fit(self.X, self.Y,
+                                                                                                       sample_weight=sample_weight_list)
+            self.residual = np.sum((self.regression.predict(self.X) - self.Y) ** 2) / (self.N - 2)
+            self.meanX = np.mean(self.X)  # 此feature的所有证据变量的feature_value的平均值
+            self.variance = np.sum((self.X - self.meanX) ** 2)
+            z = self.regression.predict(np.array([0, 1]).reshape(-1, 1))
+            self.k = (z[1] - z[0])[0]
+            self.b = z[0][0]
+
+    def append(self, appendx, appendy):
+        '''实时添加训练数据'''
+        self.X = np.append(self.X, [[appendx]], axis=0)
+        self.Y = np.append(self.Y, [[appendy]], axis=0)
+        if appendy > 0:
+            self.balance_weight_y1_count += 1
+        else:
+            self.balance_weight_y0_count += 1
+        self.perform()
+
+    def disable(self, delx, dely):
+        '''实时删除训练数据'''
+        for index in range(0, len(self.X)):
+            if self.X[index][0] == delx and self.Y[index][0] == dely:
+                self.X = np.delete(self.X, index, axis=0)
+                self.Y = np.delete(self.Y, index, axis=0)
+                if dely > 0:
+                    self.balance_weight_y1_count -= 1
+                else:
+                    self.balance_weight_y0_count -= 1
+                break
+        self.perform()
 
 
 class EvidentialSupport:
@@ -103,7 +103,7 @@ class EvidentialSupport:
         self.observed_variables_set = set()
         self.poential_variables_set=  set()
         self.data_matrix = self.create_csr_matrix()
-        self.evidence_interval = self.init_evidence_interval()
+        self.evidence_interval = gml_utils.init_evidence_interval(self.evidence_interval_count)
 
 
     def separate_feature_value(self):
@@ -115,8 +115,7 @@ class EvidentialSupport:
             for var_id, value in feature['weight'].items():
                 # 每个feature拥有的easy变量的feature_value
                 if var_id in self.observed_variables_set:
-                    each_feature_easys.append([value[1], (1 if self.variables[var_id][
-                                                                   'label'] == 1 else -1) * self.tau_and_regression_bound])
+                    each_feature_easys.append([value[1], (1 if self.variables[var_id]['label'] == 1 else -1) * self.tau_and_regression_bound])
             self.features_easys[feature['feature_id']] = copy(each_feature_easys)
 
     def create_csr_matrix(self):
@@ -262,5 +261,8 @@ class EvidentialSupport:
         logging.info("evidential_support calculate finished")
 
     def evidential_support_by_relation(self,update_feature_set):
+        pass
+
+    def evidential_support_by_custom(self,update_feature_set):
         pass
 

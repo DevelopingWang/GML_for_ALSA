@@ -53,58 +53,46 @@ def init_evidence(features,evidence_interval,observed_variables_set):
                         evidence_count += 1
         feature['evidence_count'] = evidence_count
 
-    def write_labeled_var_to_evidence_interval(variables,features,var_id,evidence_interval):
-        '''
-        因为每个featurew维护了evidence_interval属性，所以每标记一个变量之后，需要更新这个属性
-        :param var_id:
-        :return:
-        '''
-        var_index = var_id
-        feature_set = variables[var_index]['feature_set']
-        for kv in feature_set.items():
-            for interval_index in range(0, len(evidence_interval)):
-                if kv[1][1] >= evidence_interval[interval_index][0] and kv[1][1] < \
-                        evidence_interval[interval_index][1]:
-                    features[kv[0]]['evidence_interval'][interval_index].add(var_id)
-                    features[kv[0]]['evidence_count'] += 1
+def write_labeled_var_to_evidence_interval(variables,features,var_id,evidence_interval):
+    '''
+    因为每个featurew维护了evidence_interval属性，所以每标记一个变量之后，需要更新这个属性
+    :param var_id:
+    :return:
+    '''
+    var_index = var_id
+    feature_set = variables[var_index]['feature_set']
+    for kv in feature_set.items():
+        for interval_index in range(0, len(evidence_interval)):
+            if kv[1][1] >= evidence_interval[interval_index][0] and kv[1][1] < \
+                    evidence_interval[interval_index][1]:
+                features[kv[0]]['evidence_interval'][interval_index].add(var_id)
+                features[kv[0]]['evidence_count'] += 1
 
 
-    def entropy(probability):
-        '''给定概率之后计算熵
-        输入：
-        probability ： 单个概率或者概率列表
-        输出： 单个熵或者熵的列表
-        '''
-        if type(probability) == np.float64 or type(probability) == np.float32 or type(probability) == float or type(
-                probability) == int:
-            if math.isinf(probability) == True:
-                return probability
-            else:
-                if probability <= 0 or probability >= 1:
-                    return 0
-                else:
-                    return 0 - (probability * math.log(probability, 2) + (1 - probability) * math.log((1 - probability),
-                                                                                                      2))
+def entropy(probability):
+    '''给定概率之后计算熵
+    输入：
+    probability ： 单个概率或者概率列表
+    输出： 单个熵或者熵的列表
+    '''
+    if type(probability) == np.float64 or type(probability) == np.float32 or type(probability) == float or type(
+            probability) == int:
+        if math.isinf(probability) == True:
+            return probability
         else:
-            if type(probability) == list:
-                entropy_list = []
-                for each_probability in probability:
-                    entropy_list.append(entropy(each_probability))
-                return entropy_list
+            if probability <= 0 or probability >= 1:
+                return 0
             else:
-                return None
+                return 0 - (probability * math.log(probability, 2) + (1 - probability) * math.log((1 - probability),
+                                                                                                  2))
+    else:
+        if type(probability) == list:
+            entropy_list = []
+            for each_probability in probability:
+                entropy_list.append(entropy(each_probability))
+            return entropy_list
+        else:
+            return None
 
-    def open_p(weight):
-        return float(1) / float(1 + math.exp(- weight))
-
-    def approximate_probability_estimation(variables,var_id):
-        '''
-        依据近似权重计算近似概率
-        :param var_id:
-        :return:
-        '''
-        if type(var_id) == int:
-            variables[var_id]['probability'] = open_p(variables[var_id]['approximate_weight'])
-        elif type(var_id) == list or type(var_id) == set:
-            for id in var_id:
-                approximate_probability_estimation(id)
+def open_p(weight):
+    return float(1) / float(1 + math.exp(- weight))

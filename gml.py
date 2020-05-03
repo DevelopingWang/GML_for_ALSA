@@ -1,11 +1,8 @@
+import csv
 import heapq
-import math
 import pickle
 from collections import namedtuple
-from copy import copy
 from scipy.sparse import *
-from scipy.stats import t
-from sklearn.linear_model import LinearRegression
 import numbskull
 from numbskull.numbskulltypes import *
 import random
@@ -13,12 +10,12 @@ import logging
 import time
 import warnings
 import pandas as pd
-from sklearn.metrics import accuracy_score
 from sklearn import metrics
 import gml_utils
 from evidential_support import EvidentialSupport
 from easy_instance_labeling import EasyInstanceLabeling
 from evidence_select import EvidenceSelect
+import helper
 
 
 class GML:
@@ -39,7 +36,7 @@ class GML:
         self.top_k = top_k
         self.update_proportion = update_proportion
         self.balance = balance
-        self.observed_variables_set, self.poential_variables_set = gml_utils.separate_variables()
+        self.observed_variables_set, self.poential_variables_set = gml_utils.separate_variables(self.variables)
         self.es = EvidentialSupport(self.variables, self.features)
         self.ev = EvidenceSelect(self.variables, self.features)
         logging.basicConfig(
@@ -53,6 +50,18 @@ class GML:
             self.es.evidential_support_by_regression(update_feature_set)
         if self.es_method == 'realtion':
             self.es.evidential_support_by_relation(update_feature_set)
+
+    def approximate_probability_estimation(self, var_id):
+        '''
+        依据近似权重计算近似概率
+        :param var_id:
+        :return:
+        '''
+        if type(var_id) == int:
+            variables[var_id]['probability'] = gml_utils.open_p(variables[var_id]['approximate_weight'])
+        elif type(var_id) == list or type(var_id) == set:
+            for id in var_id:
+                self.approximate_probability_estimation(id)
 
     def select_top_m_by_es(self, m):
         '''根据计算出的Evidential Support(从大到小)选前m个隐变量
@@ -90,8 +99,15 @@ class GML:
         logging.info('select k finished')
         return k_id_list
 
+    def select_evidence(self,var_id):
+        if self.ev_method == 'interval':
+            connected_var_set, connected_edge_set, connected_feature_set = self.ev.select_evidence_by_interval(var_id,10)
+        elif self.ev_method == 'relation':
+            if type(var_id) == set() or type(var_id) == list():
+                connected_var_set, connected_edge_set, connected_feature_set = self.ev.select_evidence_by_realtion(var_id, subgraph_limit_num=1000, k_hop=2)
+        return connected_var_set, connected_edge_set, connected_feature_set
 
-    def construct_subgraph(self,var_id,evidences):
+    def construct_subgraph(self,var_id):
         '''在选出topk个隐变量之后建立子图
         输入：一个隐变量的id
         输出：按照numbskull的要求因子图,返回weight, variable, factor, fmap, domain_mask, edges
@@ -105,7 +121,7 @@ class GML:
         #     pickle.dump(self.variables, v)
         # with open("ProcessedCache/" + str(var_id) + '_features.pkl', 'wb') as f:
         #     pickle.dump(self.features, f)
-        evidence_set, partial_edges, connected_feature_set = evidences
+        evidence_set,partial_edges,connected_feature_set = self.select_evidence(var_id)
         #平衡化
         if self.balance:
             label0_var = set()
@@ -207,7 +223,7 @@ class GML:
 
     def inference_subgraph(self, var_id):
         '''推理子图
-        输入: 一个隐变量的id
+        输入: 用于实体识别则var_id是一个变量id,用于情感分类， 则var_id是k个变量的集合
         输出：推理出的此隐变量的概率，此概率需写回variables
         '''
         learn = 1000
@@ -221,12 +237,7 @@ class GML:
                                  regularization=1,
                                  reg_param=0.01)
 
-        if self.ev_method == 'interval':
-            evidences = self.ev.select_evidence_by_interval(var_id,10)
-        elif self.ev_method == 'relation':
-            evidences = self.ev.select_evidence_by_realtion(k_id_list, subgraph_limit_num=1000, k_hop=2)
-        weight, variable, factor, fmap, domain_mask, edges_num, var_map, feature_map_weight = self.construct_subgraph(
-            evidences,var_id)
+        weight, variable, factor, fmap, domain_mask, edges_num, var_map, feature_map_weight = self.construct_subgraph(var_id)
         subgraph = weight, variable, factor, fmap, domain_mask, edges_num
         ns.loadFactorGraph(*subgraph)
         # 因子图参数学习
@@ -268,7 +279,7 @@ class GML:
         self.poential_variables_set.remove(var)
         self.observed_variables_set.add(var)
         self.labeled_variables_set.add(var)
-        with open(self.dataname+'/result.txt', 'a') as f:
+        with open('result.txt', 'a') as f:
             f.write(str(var) + " " + str(self.variables[var_index]['label']) + ' ' + str(
                 self.variables[var_index]['probability']) + '\n')
         return var
@@ -281,18 +292,19 @@ class GML:
 
     def inference(self):
         '''主流程'''
-        update_cache = int(
-            self.update_proportion * len(self.poential_variables_set))  # 每推理update_cache个变量后需要重新计算evidential support
+        update_cache = int(self.update_proportion * len(self.poential_variables_set))  # 每推理update_cache个变量后需要重新计算evidential support
         labeled_var = 0
         labeled_count = 0
         var = 0  # 每轮标记的变量id
-        update_feature_set = set()  # 存储一轮更新期间证据支持发生变化的feature
-        inferenced_variables_id = set()  # 一轮更新期间已经建立过因子图并推理的隐变量
+        update_feature_set = set()       #存储一轮更新期间证据支持发生变化的feature
+        inferenced_variables_id = set()  #一轮更新期间已经建立过因子图并推理的隐变量
         for feature in self.features:
             update_feature_set.add(feature['feature_id'])
+        if self.es_method == 'interval':
+            gml_utils.init_evidence(self.features,self.es.evidence_interval,self.observed_variables_set)
         self.evidential_support(update_feature_set)
         update_feature_set.clear()
-        gml_utils.approximate_probability_estimation(self.variables,list(self.poential_variables_set))
+        self.approximate_probability_estimation(self.poential_variables_set)
         logging.info("approximate_probability calculate finished")
         while len(self.poential_variables_set) > 0:
             # 当标记的变量数目达到update_cache时，重新回归并计算evidential support
@@ -302,7 +314,7 @@ class GML:
                     for feature_id in self.variables[var_index]['feature_set'].keys():
                         update_feature_set.add(feature_id)
                 self.evidential_support(update_feature_set)
-                gml_utils.approximate_probability_estimation(self.variables,list(self.poential_variables_set))
+                self.approximate_probability_estimation(self.poential_variables_set)
                 logging.info("approximate_probability calculate finished")
                 labeled_var = 0
                 update_feature_set.clear()
@@ -316,15 +328,20 @@ class GML:
                 k_list = self.select_top_k_by_entropy(m_list, self.top_k)
             else:
                 k_list.remove(var)
+            if self.es_method == 'interval':
             # 只要没有进行更新,就每次只推理新增的变量
-            add_list = [x for x in k_list if x not in inferenced_variables_id]
-            if len(add_list) > 0:
-                for var_id in add_list:
-                    # if var_id not in inferenced_variables_id:
-                    self.inference_subgraph(var_id)
-                    # 每轮更新期间推理过的变量，因为参数没有更新，所以无需再进行推理。
-                    inferenced_variables_id.add(var_id)
+                add_list = [x for x in k_list if x not in inferenced_variables_id]
+                if len(add_list) > 0:
+                    for var_id in add_list:
+                        # if var_id not in inferenced_variables_id:
+                        self.inference_subgraph(var_id)
+                        # 每轮更新期间推理过的变量，因为参数没有更新，所以无需再进行推理。
+                        inferenced_variables_id.add(var_id)
+            elif self.es_method == 'relation':
+                self.inference_subgraph(k_list)
             var = self.label(k_list)
+            if self.es_method == 'interval':
+                gml_utils.write_labeled_var_to_evidence_interval(self.variables,self.features,var,self.es.evidence_interval)
             labeled_var += 1
             labeled_count += 1
             logging.info("label_num=" + str(labeled_count))
@@ -368,14 +385,7 @@ class GML:
 if __name__ == '__main__':
     warnings.filterwarnings('ignore')  #过滤掉warning输出
     begin_time = time.time()
-    easys = list()
-    easys_element = dict()
-    easy_file = pd.read_csv('data/abtbuy_easys.csv')
-    for easy in easy_file:
-        easys_element[easy['id']] = easy['label']
-        easys.append(easys_element)
-        easys_element.clear()
-
+    easys = helper.EasyInstanceLabeling.load_easy_instance_from_file('data/abtbuy_easys.csv')
     with open('data/abtbuy_variables.pkl', 'rb') as v:
         variables = pickle.load(v)
         v.close()
