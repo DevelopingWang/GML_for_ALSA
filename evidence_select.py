@@ -29,6 +29,7 @@ class EvidenceSelect:
         connected_edge_set = set()
         connected_feature_set = set()  # 记录此隐变量上建因子图时实际保留了哪些feature
         feature_set = self.variables[var_id]['feature_set']
+        #先加入证据变量和特征的边
         for feature_id in feature_set.keys():
             if self.features[feature_id]['evidence_count'] > 0:  # 有些feature上没有连接证据变量，就不用再加进来
                 connected_feature_set.add(feature_id)
@@ -45,6 +46,10 @@ class EvidenceSelect:
                         connected_var_set = connected_var_set.union(sample)
                         for id in sample:
                             connected_edge_set.add((feature_id, id))
+        #再加入此隐变量和特征的边
+        connected_var_set.add(var_id)
+        for feature_id in connected_feature_set:
+            connected_edge_set.add((feature_id,var_id))
         logging.info("var-" + str(var_id) + " select evidence by interval finished")
         return connected_var_set, connected_edge_set, connected_feature_set
 
@@ -60,74 +65,75 @@ class EvidenceSelect:
         connected_edge_set -- 边的集合
         connected_feature_set --能用得上的feature的集合
         '''
-
-
-        subgraph_limit_num = self.subgraph_limit_num
-        k_hop = self.k_hop
-        connected_var_set = set()
-        connected_edge_set = set()
-        connected_feature_set = set()  # 记录此隐变量上建因子图时实际保留了哪些feature
-        connected_var_set = connected_var_set.union(set(var_id_list))
-        current_var_set = connected_var_set
-        next_var_set = set()
-        # 先找relation型特征的k-hop跳的证据变量(需确定此处是否只添加证据变量，不包括隐变量)
-        for k in range(k_hop):
-            for var_id in current_var_set:
+        if type(var_id_list) == set() or type(var_id_list) == list():
+            subgraph_limit_num = self.subgraph_limit_num
+            k_hop = self.k_hop
+            connected_var_set = set()
+            connected_edge_set = set()
+            connected_feature_set = set()  # 记录此隐变量上建因子图时实际保留了哪些feature
+            connected_var_set = connected_var_set.union(set(var_id_list))
+            current_var_set = connected_var_set
+            next_var_set = set()
+            # 先找relation型特征的k-hop跳的证据变量(需确定此处是否只添加证据变量，不包括隐变量)
+            for k in range(k_hop):
+                for var_id in current_var_set:
+                    feature_set = self.variables[var_id]['feature_set']
+                    for feature_id in feature_set.keys():
+                        if self.features[feature_id]['feature_type'] == 'binary_feature':
+                            weight = self.features[feature_id]['weight']
+                            for id in weight.keys():
+                                if type(id) == tuple and var_id in id:
+                                    another_var_id = id[0] if id[0] != var_id else id[1]
+                                    if self.variables[another_var_id]['is_evidence'] == True:
+                                        next_var_set.add(another_var_id)
+                                        connected_feature_set.add(feature_id)
+                                        connected_edge_set.add((feature_id,id))
+                    connected_var_set = connected_var_set.union(next_var_set)
+                    current_var_set = next_var_set
+                    next_var_set.clear()
+            #再找和这k个变量共享word型feature的变量（先加证据变量，如果没有超过最大变量限制，再加隐变量）
+            subgraph_capacity = subgraph_limit_num - len(connected_var_set)
+            unary_connected_unlabeled_var = list()
+            unary_connected_unlabeled_edge = list()
+            unary_connected_unlabeled_feature = list()
+            unary_connected_evidence_var = list()
+            unary_connected_evidence_edge = list()
+            unary_connected_evidence_feature = list()
+            for var_id in var_id_list:
                 feature_set = self.variables[var_id]['feature_set']
                 for feature_id in feature_set.keys():
-                    if self.features[feature_id]['feature_type'] == 'binary_feature':
+                    if self.features[feature_id]['feature_type'] == 'unary_feature':
                         weight = self.features[feature_id]['weight']
                         for id in weight.keys():
-                            if type(id) == tuple and var_id in id:
-                                another_var_id = id[0] if id[0] != var_id else id[1]
-                                if self.variables[another_var_id]['is_evidence'] == True:
-                                    next_var_set.add(another_var_id)
-                                    connected_feature_set.add(feature_id)
-                                    connected_edge_set.add((feature_id,id))
-                connected_var_set = connected_var_set.union(next_var_set)
-                current_var_set = next_var_set
-                next_var_set.clear()
-        #再找和这k个变量共享word型feature的变量（先加证据变量，如果没有超过最大变量限制，再加隐变量）
-        subgraph_capacity = subgraph_limit_num - len(connected_var_set)
-        unary_connected_unlabeled_var = list()
-        unary_connected_unlabeled_edge = list()
-        unary_connected_unlabeled_feature = list()
-        unary_connected_evidence_var = list()
-        unary_connected_evidence_edge = list()
-        unary_connected_evidence_feature = list()
-        for var_id in var_id_list:
-            feature_set = self.variables[var_id]['feature_set']
-            for feature_id in feature_set.keys():
-                if self.features[feature_id]['feature_type'] == 'unary_feature':
-                    weight = self.features[feature_id]['weight']
-                    for id in weight.keys():
-                        if self.variables[id]['is_evidence'] == True:
-                            unary_connected_evidence_var.append(id)
-                            unary_connected_evidence_feature.append(feature_id)
-                            unary_connected_evidence_edge.append((feature_id,id))
-                        else:
-                            unary_connected_unlabeled_var.append(id)
-                            unary_connected_unlabeled_feature.append(feature_id)
-                            unary_connected_unlabeled_edge.append((feature_id, id))
-        #限制子图规模大小
-        if(len(unary_connected_evidence_var) <= subgraph_capacity ):
-            connected_var_set = connected_var_set.union(set(unary_connected_evidence_var))
-            connected_feature_set = connected_feature_set.union((set(unary_connected_evidence_feature)))
-            connected_edge_set = connected_edge_set.union(set(unary_connected_evidence_edge))
-            if(len(unary_connected_unlabeled_var) <= (subgraph_capacity-len(unary_connected_evidence_var))):
-                connected_var_set = connected_var_set.union(set(unary_connected_unlabeled_var))
-                connected_feature_set = connected_feature_set.union((set(unary_connected_unlabeled_feature)))
-                connected_edge_set = connected_edge_set.union(set(unary_connected_unlabeled_edge))
+                            if self.variables[id]['is_evidence'] == True:
+                                unary_connected_evidence_var.append(id)
+                                unary_connected_evidence_feature.append(feature_id)
+                                unary_connected_evidence_edge.append((feature_id,id))
+                            else:
+                                unary_connected_unlabeled_var.append(id)
+                                unary_connected_unlabeled_feature.append(feature_id)
+                                unary_connected_unlabeled_edge.append((feature_id, id))
+            #限制子图规模大小
+            if(len(unary_connected_evidence_var) <= subgraph_capacity ):
+                connected_var_set = connected_var_set.union(set(unary_connected_evidence_var))
+                connected_feature_set = connected_feature_set.union((set(unary_connected_evidence_feature)))
+                connected_edge_set = connected_edge_set.union(set(unary_connected_evidence_edge))
+                if(len(unary_connected_unlabeled_var) <= (subgraph_capacity-len(unary_connected_evidence_var))):
+                    connected_var_set = connected_var_set.union(set(unary_connected_unlabeled_var))
+                    connected_feature_set = connected_feature_set.union((set(unary_connected_unlabeled_feature)))
+                    connected_edge_set = connected_edge_set.union(set(unary_connected_unlabeled_edge))
+                else:
+                    connected_var_set = connected_var_set.union(set(unary_connected_unlabeled_var[:subgraph_capacity-len(unary_connected_evidence_var)]))
+                    connected_feature_set = connected_feature_set.union(set(unary_connected_unlabeled_feature[:subgraph_capacity-len(unary_connected_evidence_var)]))
+                    connected_edge_set = connected_edge_set.union(set(unary_connected_unlabeled_edge[:subgraph_capacity-len(unary_connected_evidence_var)]))
             else:
-                connected_var_set = connected_var_set.union(set(unary_connected_unlabeled_var[:subgraph_capacity-len(unary_connected_evidence_var)]))
-                connected_feature_set = connected_feature_set.union(set(unary_connected_unlabeled_feature[:subgraph_capacity-len(unary_connected_evidence_var)]))
-                connected_edge_set = connected_edge_set.union(set(unary_connected_unlabeled_edge[:subgraph_capacity-len(unary_connected_evidence_var)]))
+                connected_var_set = connected_var_set.union(set(unary_connected_evidence_var[:subgraph_capacity]))
+                connected_feature_set = connected_feature_set.union((set(unary_connected_evidence_feature[:subgraph_capacity])))
+                connected_edge_set = connected_edge_set.union(set(unary_connected_evidence_edge[:subgraph_capacity]))
+            logging.info("select evidece by relation finished")
+            return connected_var_set, connected_edge_set, connected_feature_set
         else:
-            connected_var_set = connected_var_set.union(set(unary_connected_evidence_var[:subgraph_capacity]))
-            connected_feature_set = connected_feature_set.union((set(unary_connected_evidence_feature[:subgraph_capacity])))
-            connected_edge_set = connected_edge_set.union(set(unary_connected_evidence_edge[:subgraph_capacity]))
-        logging.info("select evidece by relation finished")
-        return connected_var_set, connected_edge_set, connected_feature_set
+            print('参数错误，输入应为K个id的列表')
 
     def select_evidence_by_custom(self,var_id):
         #用户可自行实现此函数

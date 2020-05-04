@@ -88,7 +88,7 @@ class Regression:
 
 
 class EvidentialSupport:
-    def __init__(self,variables,features,evidence_interval_count=10,interval_evidence_count=200):
+    def __init__(self,variables,features,method = 'regression',evidence_interval_count=10,interval_evidence_count=200):
         self.variables = variables
         self.features = features
         self.features_easys = dict()  # 存放所有features的所有easy的featurevalue   :feature_id:[[value1,bound],[value2,bound]...]
@@ -100,9 +100,10 @@ class EvidentialSupport:
         self.delta = 2
         self.effective_training_count_threshold = 2
         self.observed_variables_set, self.poential_variables_set = gml_utils.separate_variables(self.variables)
-        self.data_matrix = self.create_csr_matrix()
-        self.evidence_interval = gml_utils.init_evidence_interval(self.evidence_interval_count)
-        gml_utils.init_evidence(self.features,self.evidence_interval,self.observed_variables_set)
+        if method == 'regression':
+            self.data_matrix = self.create_csr_matrix()
+            self.evidence_interval = gml_utils.init_evidence_interval(self.evidence_interval_count)
+            gml_utils.init_evidence(self.features,self.evidence_interval,self.observed_variables_set)
 
 
     def separate_feature_value(self):
