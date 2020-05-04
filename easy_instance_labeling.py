@@ -25,4 +25,5 @@ class EasyInstanceLabeling:
     def label_easy_by_clustering(self,easy_proportion = 0.3):
         #通过聚类标easy
         pass
-
+    def label_easy_by_custom(self):
+        pass
