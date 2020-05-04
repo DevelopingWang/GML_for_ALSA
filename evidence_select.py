@@ -4,11 +4,15 @@ import random
 
 
 class EvidenceSelect:
-    def __init__(self,variables,features):
+    def __init__(self,variables,features,interval_evidence_count = 10,subgraph_limit_num=1000,k_hop=2):
         self.variables = variables
         self.features = features
+        self.subgraph_limit_num = subgraph_limit_num
+        self.k_hop = k_hop
+        self.interval_evidence_count = interval_evidence_count
 
-    def select_evidence_by_interval(self, var_id,interval_evidence_count):
+
+    def select_evidence_by_interval(self, var_id):
         '''
         按照feature_value的区间为指定的隐变量挑一定数量的证据变量,适用于ER
         目前是每个feature划分evidence_interval_count个区间，每个区间挑不超过interval_evidence_count个
@@ -31,20 +35,20 @@ class EvidenceSelect:
                 evidence_interval = self.features[feature_id]['evidence_interval']
                 for interval in evidence_interval:
                     # 如果这个区间的证据变量小于200，就全加进来
-                    if len(interval) <= interval_evidence_count:
+                    if len(interval) <= self.interval_evidence_count:
                         connected_var_set = connected_var_set.union(interval)
                         for id in interval:
                             connected_edge_set.add((feature_id, id))
                     else:
                         # 如果大于200,就随机采样200个
-                        sample = random.sample(list(interval), interval_evidence_count)
+                        sample = random.sample(list(interval), self.interval_evidence_count)
                         connected_var_set = connected_var_set.union(sample)
                         for id in sample:
                             connected_edge_set.add((feature_id, id))
         logging.info("var-" + str(var_id) + " select evidence by interval finished")
         return connected_var_set, connected_edge_set, connected_feature_set
 
-    def select_evidence_by_realtion(self, var_id_list, subgraph_limit_num=1000, k_hop=2):
+    def select_evidence_by_realtion(self, var_id_list):
         '''为选出的top_k个隐变量挑选证据，适用于ALSA
         输入：
         var_id_list --- k个变量id的列表
@@ -56,6 +60,10 @@ class EvidenceSelect:
         connected_edge_set -- 边的集合
         connected_feature_set --能用得上的feature的集合
         '''
+
+
+        subgraph_limit_num = self.subgraph_limit_num
+        k_hop = self.k_hop
         connected_var_set = set()
         connected_edge_set = set()
         connected_feature_set = set()  # 记录此隐变量上建因子图时实际保留了哪些feature
@@ -119,4 +127,14 @@ class EvidenceSelect:
             connected_feature_set = connected_feature_set.union((set(unary_connected_evidence_feature[:subgraph_capacity])))
             connected_edge_set = connected_edge_set.union(set(unary_connected_evidence_edge[:subgraph_capacity]))
         logging.info("select evidece by relation finished")
+        return connected_var_set, connected_edge_set, connected_feature_set
+
+    def select_evidence_by_custom(self,var_id):
+        #用户可自行实现此函数
+        connected_var_set = set()
+        connected_edge_set = set()
+        connected_feature_set = set()  # 记录此隐变量上建因子图时实际保留了哪些feature
+        #overide
+
+
         return connected_var_set, connected_edge_set, connected_feature_set

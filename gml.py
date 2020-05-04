@@ -23,22 +23,22 @@ class GML:
     Construction of Inference Subgraph等；不包括Feature Extract和Easy Instance Labeling
     在实现过程中，注意区分实例变量和类变量
     '''
-    def __init__(self,variables, features, es_method, ev_method,top_m=2000, top_k=10, update_proportion=0.01,
+    def __init__(self,variables, features, evidential_support_method, evidence_select_method,top_m=2000, top_k=10, update_proportion=0.01,
                  balance = False):
         '''
         '''
         self.variables = variables
         self.features = features
-        self.es_method = es_method
-        self.ev_method = ev_method
-        self.labeled_variables_set = set()  # 所有新标记变量集合
+        self.evidential_support_method = evidential_support_method   #选择evidential support的方法
+        self.evidence_select_method = evidence_select_method   #选择select evidence的方法
+        self.labeled_variables_set = set()  #所有新标记变量集合
         self.top_m = top_m
         self.top_k = top_k
         self.update_proportion = update_proportion
         self.balance = balance
         self.observed_variables_set, self.poential_variables_set = gml_utils.separate_variables(self.variables)
-        self.es = EvidentialSupport(self.variables, self.features)
-        self.ev = EvidenceSelect(self.variables, self.features)
+        self.support = EvidentialSupport(self.variables, self.features)
+        self.select = EvidenceSelect(self.variables, self.features)
         logging.basicConfig(
             level=logging.INFO,  # 设置输出信息等级
             format='%(asctime)s - %(name)s - [%(levelname)s]: %(message)s'  # 设置输出格式
@@ -46,10 +46,12 @@ class GML:
 
 
     def evidential_support(self,update_feature_set):
-        if self.es_method == 'interval':
-            self.es.evidential_support_by_regression(update_feature_set)
-        if self.es_method == 'realtion':
-            self.es.evidential_support_by_relation(update_feature_set)
+        if self.evidential_support_method == 'interval':
+            self.support.evidential_support_by_regression(update_feature_set)
+        elif self.evidential_support_method == 'realtion':
+            self.support.evidential_support_by_relation(update_feature_set)
+        elif self.evidential_support_method == 'custom':
+            self.support.evidential_support_by_custom(update_feature_set)
 
     def approximate_probability_estimation(self, var_id):
         '''
@@ -100,11 +102,16 @@ class GML:
         return k_id_list
 
     def select_evidence(self,var_id):
-        if self.ev_method == 'interval':
-            connected_var_set, connected_edge_set, connected_feature_set = self.ev.select_evidence_by_interval(var_id,10)
-        elif self.ev_method == 'relation':
+        connected_var_set = set()
+        connected_edge_set = set()
+        connected_feature_set = set()
+        if self.evidence_select_method == 'interval':
+            connected_var_set, connected_edge_set, connected_feature_set = self.select.select_evidence_by_interval(var_id)
+        elif self.evidence_select_method == 'relation':
             if type(var_id) == set() or type(var_id) == list():
-                connected_var_set, connected_edge_set, connected_feature_set = self.ev.select_evidence_by_realtion(var_id, subgraph_limit_num=1000, k_hop=2)
+                connected_var_set, connected_edge_set, connected_feature_set = self.select.select_evidence_by_realtion(var_id)
+        elif self.evidence_select_method == 'custom':
+            connected_var_set, connected_edge_set, connected_feature_set = self.select.select_evidence_by_custom(var_id)
         return connected_var_set, connected_edge_set, connected_feature_set
 
     def construct_subgraph(self,var_id):
@@ -300,8 +307,6 @@ class GML:
         inferenced_variables_id = set()  #一轮更新期间已经建立过因子图并推理的隐变量
         for feature in self.features:
             update_feature_set.add(feature['feature_id'])
-        if self.es_method == 'interval':
-            gml_utils.init_evidence(self.features,self.es.evidence_interval,self.observed_variables_set)
         self.evidential_support(update_feature_set)
         update_feature_set.clear()
         self.approximate_probability_estimation(self.poential_variables_set)
@@ -328,7 +333,7 @@ class GML:
                 k_list = self.select_top_k_by_entropy(m_list, self.top_k)
             else:
                 k_list.remove(var)
-            if self.es_method == 'interval':
+            if self.evidential_support_method == 'interval':
             # 只要没有进行更新,就每次只推理新增的变量
                 add_list = [x for x in k_list if x not in inferenced_variables_id]
                 if len(add_list) > 0:
@@ -337,11 +342,13 @@ class GML:
                         self.inference_subgraph(var_id)
                         # 每轮更新期间推理过的变量，因为参数没有更新，所以无需再进行推理。
                         inferenced_variables_id.add(var_id)
-            elif self.es_method == 'relation':
+            elif self.evidential_support_method == 'relation':
+                self.inference_subgraph(k_list)
+            elif self.evidential_support_method == 'custom':
                 self.inference_subgraph(k_list)
             var = self.label(k_list)
-            if self.es_method == 'interval':
-                gml_utils.write_labeled_var_to_evidence_interval(self.variables,self.features,var,self.es.evidence_interval)
+            if self.evidential_support_method == 'interval':
+                gml_utils.write_labeled_var_to_evidence_interval(self.variables,self.features,var,self.support.evidence_interval)
             labeled_var += 1
             labeled_count += 1
             logging.info("label_num=" + str(labeled_count))
@@ -393,7 +400,7 @@ if __name__ == '__main__':
         features = pickle.load(f)
         f.close()
     EasyInstanceLabeling(variables,features,easys).label_easy_by_file()
-    graph = GML(variables, features, es_method = 'interval', ev_method = 'interval', top_m = 2000, top_k=10, update_proportion=0.01,balance = False)
+    graph = GML(variables, features, evidential_support_method = 'interval', evidence_select_method = 'interval')
     graph.inference()
     graph.score()
     end_time = time.time()

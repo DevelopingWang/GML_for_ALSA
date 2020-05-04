@@ -88,22 +88,21 @@ class Regression:
 
 
 class EvidentialSupport:
-    def __init__(self,variables,features):
+    def __init__(self,variables,features,evidence_interval_count=10,interval_evidence_count=200):
         self.variables = variables
         self.features = features
         self.features_easys = dict()  # 存放所有features的所有easy的featurevalue   :feature_id:[[value1,bound],[value2,bound]...]
         self.tau_and_regression_bound = 10
-        self.evidence_interval_count = 10
+        self.evidence_interval_count = evidence_interval_count  #区间数为10
+        self.interval_evidence_count = interval_evidence_count  # 每个区间的变量数为200
         self.NOT_NONE_VALUE = 1e-8
         self.n_job = 10
         self.delta = 2
         self.effective_training_count_threshold = 2
-        self.evidence_interval_count = 10  # 区间个数10
-        self.interval_evidence_count = 200  # 每个区间的变量数为200
-        self.observed_variables_set = set()
-        self.poential_variables_set=  set()
+        self.observed_variables_set, self.poential_variables_set = gml_utils.separate_variables(self.variables)
         self.data_matrix = self.create_csr_matrix()
         self.evidence_interval = gml_utils.init_evidence_interval(self.evidence_interval_count)
+        gml_utils.init_evidence(self.features,self.evidence_interval,self.observed_variables_set)
 
 
     def separate_feature_value(self):
@@ -188,7 +187,7 @@ class EvidentialSupport:
     def evidential_support_by_regression(self,update_feature_set):
         '''计算所有隐变量的Evidential Support'''
 
-        self.observed_variables_set,self.poential_variables_set = gml_utils.separate_variables(self.variables)
+        self.observed_variables_set, self.poential_variables_set = gml_utils.separate_variables(self.variables)
         self.separate_feature_value()
         self.influence_modeling(update_feature_set)
         coo_data = self.data_matrix.tocoo()
