@@ -2,12 +2,12 @@ import pickle
 from copy import copy
 import random
 
-with open('all_global_parse_fg.pkl', 'rb') as f:
+with open('data/all_global_parse_fg.pkl', 'rb') as f:
     all_datas = pickle.load(f)
 
 word_feature_set = set()    #word型特征
 single_word_feature_set =set()    #只有一个变量的word型特征特征
-multi_word_feature_set = set()  #有很多个变量的word型特征
+multi_word_feature_set = set()    #有很多个变量的word型特征
 for item in all_datas[3]:
     if item.name1 not in word_feature_set:
         word_feature_set.add(item.name1)
@@ -32,7 +32,7 @@ for rel_type in ['asp2asp_sequence_oppo','asp2asp_intrasent_simi','asp2asp_seque
     for item in all_datas[2]:
         if item.rel_type == rel_type:
             key = (var_id_map[item.name1], var_id_map[item.name2])
-            weight_value = [-2.0,0]  if item.rel_type == 'asp2asp_sequence_oppo' else [2.0,0]  #暂时把featurevalue都设置为0
+            weight_value = [-2.0,rel_type]  if item.rel_type == 'asp2asp_sequence_oppo' else [2.0,rel_type]  #暂时把featurevalue都设置为rel_type
             weight_elem[key] = weight_value
     feature['weight'] = copy(weight_elem)
     features.append(copy(feature))
@@ -47,7 +47,7 @@ for name in single_word_feature_set:
             feature['feature_name'] = item.rel_type
             feature['feature_type'] = 'unary_feature'
             key = var_id_map[item.name2]
-            weight_value = [2.0,item.name1]  #暂时把feature_value设置为word的name
+            weight_value = [2.0,item.name1]  #暂时把feature_value设置为具体的词
             weight_elem[key] = weight_value
             feature['weight'] = copy(weight_elem)
             features.append(copy(feature))
@@ -99,7 +99,7 @@ for id,item in enumerate(all_datas[0]):
 
 
 
-with open('variables.pkl','wb') as v:
+with open('data/variables.pkl', 'wb') as v:
     pickle.dump(variables,v)
-with open('features.pkl','wb') as f:
+with open('data/features.pkl', 'wb') as f:
     pickle.dump(features,f)
