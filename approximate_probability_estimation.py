@@ -18,13 +18,24 @@ class ApproximateProbabilityEstimation:
         :return:
         '''
         if type(var_id) == int:
-            self.variables[var_id]['probability'] = gml_utils.open_p(self.variables[var_id]['approximate_weight'])
+            self.variables[var_id]['approximate_probability'] = gml_utils.open_p(self.variables[var_id]['approximate_weight'])
         elif type(var_id) == list or type(var_id) == set:
             for id in var_id:
                 self.approximate_probability_estimation_by_interval(id)
 
     def approximate_probability_estimation_by_relation(self, var_id):
         pass
+
+
+
+
+
+
+
+
+
+
+
 
     def approximate_probability_estimation_by_custom(self, var_id):
         pass

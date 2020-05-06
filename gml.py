@@ -93,7 +93,7 @@ class GML:
         k_id_list = list()
         for var_id in var_id_list:
             var_index = var_id
-            self.variables[var_index]['entropy'] = gml_utils.entropy(self.variables[var_index]['probability'])
+            self.variables[var_index]['entropy'] = gml_utils.entropy(self.variables[var_index]['approximate_probability'])
             m_list.append(self.variables[var_index])
         k_list = heapq.nsmallest(k, m_list, key=lambda x: x['entropy'])
         for var in k_list:

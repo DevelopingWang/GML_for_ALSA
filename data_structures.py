@@ -16,10 +16,11 @@ variable
       ...
     },
     #代码运行期间可能会自动生成的属性
-    'probability':0.99，          #推理出的概率
+    'probability':0.99,           #推理出的概率
     'evidential_support':0.3,     #evidential_support
     'entropy': 0.4,               #熵
     'approximate_weight':0.3,     #近似权重
+    'approximate_probability': 0.85    #近似概率，用来选topk
      ...
 }
 
