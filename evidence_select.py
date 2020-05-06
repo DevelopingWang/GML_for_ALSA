@@ -46,10 +46,10 @@ class EvidenceSelect:
                         connected_var_set = connected_var_set.union(sample)
                         for id in sample:
                             connected_edge_set.add((feature_id, id))
-        #再加入此隐变量和特征的边
-        connected_var_set.add(var_id)
-        for feature_id in connected_feature_set:
-            connected_edge_set.add((feature_id,var_id))
+        # #再加入此隐变量和特征的边
+        # connected_var_set.add(var_id)
+        # for feature_id in connected_feature_set:
+        #     connected_edge_set.add((feature_id,var_id))
         logging.info("var-" + str(var_id) + " select evidence by interval finished")
         return connected_var_set, connected_edge_set, connected_feature_set
 

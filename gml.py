@@ -16,6 +16,7 @@ from evidential_support import EvidentialSupport
 from easy_instance_labeling import EasyInstanceLabeling
 from evidence_select import EvidenceSelect
 from approximate_probability_estimation import ApproximateProbabilityEstimation
+from construct_subgraph import ConstructSubgraph
 import helper
 
 
@@ -24,7 +25,7 @@ class GML:
     Construction of Inference Subgraph等；不包括Feature Extract和Easy Instance Labeling
     在实现过程中，注意区分实例变量和类变量
     '''
-    def __init__(self,variables, features, evidential_support_method, approximate_probability_method,evidence_select_method,top_m=2000, top_k=10, update_proportion=0.01,
+    def __init__(self,variables, features, evidential_support_method, approximate_probability_method,evidence_select_method,construct_subgraph_method, top_m=2000, top_k=10, update_proportion=0.01,
                  balance = False):
         '''
         '''
@@ -33,15 +34,16 @@ class GML:
         self.evidential_support_method = evidential_support_method   #选择evidential support的方法
         self.evidence_select_method = evidence_select_method   #选择select evidence的方法
         self.approximate_probability_method = approximate_probability_method   #选择估计近似概率的方法
+        self.construct_subgraph_method = construct_subgraph_method      #选择构建因子图的方法
         self.labeled_variables_set = set()  #所有新标记变量集合
         self.top_m = top_m
         self.top_k = top_k
         self.update_proportion = update_proportion
-        self.balance = balance
         self.observed_variables_set, self.poential_variables_set = gml_utils.separate_variables(variables)
         self.support = EvidentialSupport(variables, features,evidential_support_method)
         self.select = EvidenceSelect(variables, features)
         self.approximate = ApproximateProbabilityEstimation(variables)
+        self.subgraph = ConstructSubgraph(variables,features,balance)
         logging.basicConfig(
             level=logging.INFO,  # 设置输出信息等级
             format='%(asctime)s - %(name)s - [%(levelname)s]: %(message)s'  # 设置输出格式
@@ -118,114 +120,11 @@ class GML:
         输入：一个隐变量的id
         输出：按照numbskull的要求因子图,返回weight, variable, factor, fmap, domain_mask, edges
         '''
-        var_index = var_id
-        feature_set = self.variables[var_index]['feature_set']
-        # 存储选出的证据和实时的变量和特征
-        # with open("ProcessedCache/" + str(var_id) + '_evidences.pkl', 'wb') as e:
-        #     pickle.dump(evidences, e)
-        # with open("ProcessedCache/" + str(var_id) + '_variables.pkl', 'wb') as v:
-        #     pickle.dump(self.variables, v)
-        # with open("ProcessedCache/" + str(var_id) + '_features.pkl', 'wb') as f:
-        #     pickle.dump(self.features, f)
-        evidence_set,partial_edges,connected_feature_set = self.select_evidence(var_id)
-        #平衡化
-        if self.balance:
-            label0_var = set()
-            label1_var = set()
-            for var_id in evidence_set:
-                if variables[var_id]['label'] == 1:
-                    label1_var.add(var_id)
-                elif variables[var_id]['label'] == 0:
-                    label0_var.add(var_id)
-            sampled_label0_var = set(random.sample(list(label0_var), len(label1_var)))
-            new_evidence_set = label1_var.union(sampled_label0_var)
-            new_partial_edges = set()
-            new_connected_feature_set = set()
-            for edge in partial_edges:
-                if edge[1] in new_evidence_set:
-                    new_partial_edges.add(edge)
-                    new_connected_feature_set.add(edge[0])
-            evidence_set = new_evidence_set
-            partial_edges = new_partial_edges
-            connected_feature_set = new_connected_feature_set
-        var_map = dict()  # 用来记录self.variables与numbskull的variable变量的映射-(self,numbskull)
-        # 初始化变量
-        var_num = len(evidence_set) + 1  # 证据变量+隐变量
-        variable = np.zeros(var_num, Variable)
-        # 初始化隐变量,隐变量的id为0，注意区分总体的variables和小因子图中的variable
-        variable[0]["isEvidence"] = False
-        variable[0]["initialValue"] = self.variables[var_index]['label']
-        variable[0]["dataType"] = 0  # datatype=0表示是bool变量，为1时表示非布尔变量。
-        variable[0]["cardinality"] = 2
-        var_map[var_index] = 0  # (self,numbskull)  隐变量ID为0
-        i = 1
-        # 初始化证据变量
-        for evidence_id in evidence_set:
-            var_index = evidence_id
-            variable[i]["isEvidence"] = True  # self.variables[var_index]['is_evidence']
-            variable[i]["initialValue"] = self.variables[var_index]['label']
-            variable[i]["dataType"] = 0  # datatype=0表示是bool变量，为1时表示非布尔变量。
-            variable[i]["cardinality"] = 2
-            var_map[evidence_id] = i  # 一一记录
-            i += 1
-        # 初始化weight,多个因子可以共享同一个weight
-        weight = np.zeros(len(connected_feature_set), Weight)  # weight的数目等于此隐变量使用的feature的数目
-        feature_map_weight = dict()  # 需要记录feature id和weight id之间的映射 [feature_id,weight_id]
-        weight_index = 0
-        for feature_id in connected_feature_set:
-            weight[weight_index]["isFixed"] = False
-            weight[weight_index]["parameterize"] = True
-            weight[weight_index]["a"] = self.features[feature_id]['tau']
-            weight[weight_index]["b"] = self.features[feature_id]['alpha']
-            weight[weight_index]["initialValue"] = random.uniform(-5,5)  # 此处一个weight会有很多个weight_value，此处随机初始化一个，后面应该用不上
-            feature_map_weight[feature_id] = weight_index
-            weight_index += 1
+        evidences = self.select_evidence(var_id)
+        method = 'self.subgraph.construct_subgraph_for_' + self.construct_subgraph_method + "(var_id,evidences)"
+        weight, variable, factor, fmap, domain_mask, edges_num, var_map  = eval(method)
+        return weight, variable, factor, fmap, domain_mask, edges_num, var_map
 
-        # 按照numbskull要求初始化factor,fmap,edges
-        edges_num = len(connected_feature_set) + len(partial_edges)  # 边的数目
-        factor = np.zeros(edges_num, Factor)  # 目前是全当成单因子，所以有多少个边就有多少个因子
-        fmap = np.zeros(edges_num, FactorToVar)
-        domain_mask = np.zeros(var_num, np.bool)
-        edges = list()
-        edge = namedtuple('edge', ['index', 'factorId', 'varId'])  # 单变量因子的边
-        factor_index = 0
-        fmp_index = 0
-        edge_index = 0
-        # 先初始化此隐变量上连接的所有单因子
-        for feature_id in connected_feature_set:  # dict是无序的，但是得到的keys是有序的
-            factor[factor_index]["factorFunction"] = 18
-            factor[factor_index]["weightId"] = feature_map_weight[feature_id]
-            factor[factor_index]["featureValue"] = feature_set[feature_id][1]
-            factor[factor_index]["arity"] = 1  # 单因子度为1
-            factor[factor_index]["ftv_offset"] = fmp_index  # 偏移量每次加1
-            # 先保存此隐变量上的边
-            edges.append(edge(edge_index, factor_index, 0))
-            fmap[fmp_index]["vid"] = 0  # edges[factor_index][2]
-            fmap[fmp_index]["x"] = feature_set[feature_id][1]  # feature_value
-            fmap[fmp_index]["theta"] = feature_set[feature_id][0]  # theta
-            fmp_index += 1
-            factor_index += 1
-            edge_index += 1
-        # 再初始化证据变量上连接的单因子
-        for elem in partial_edges:  # [feature_id,var_id]
-            var_index = elem[1]
-            factor[factor_index]["factorFunction"] = 18
-            factor[factor_index]["weightId"] = feature_map_weight[elem[0]]
-            factor[factor_index]["featureValue"] = self.variables[var_index]['feature_set'][elem[0]][1]
-            factor[factor_index]["arity"] = 1  # 单因子度为1
-            factor[factor_index]["ftv_offset"] = fmp_index  # 偏移量每次加1
-            edges.append(edge(edge_index, factor_index, var_map[elem[1]]))
-            fmap[fmp_index]["vid"] = edges[factor_index][2]
-            fmap[fmp_index]["x"] = self.variables[var_index]['feature_set'][elem[0]][1]  # feature_value
-            fmap[fmp_index]["theta"] = self.variables[var_index]['feature_set'][elem[0]][0]  # theta
-            fmp_index += 1
-            factor_index += 1
-            edge_index += 1
-        logging.info("var-" + str(var_id) + " construct subgraph succeed")
-        subgraph = weight, variable, factor, fmap, domain_mask, edges_num, var_map, feature_map_weight
-        # with open("ProcessedCache/" + str(var_id) + "_subgraph.pkl",'wb') as s:
-        #     pickle.dump(subgraph, s)
-        return weight, variable, factor, fmap, domain_mask, edges_num, var_map, feature_map_weight
 
     def inference_subgraph(self, var_id):
         '''推理子图
@@ -243,7 +142,7 @@ class GML:
                                  regularization=1,
                                  reg_param=0.01)
 
-        weight, variable, factor, fmap, domain_mask, edges_num, var_map, feature_map_weight = self.construct_subgraph(var_id)
+        weight, variable, factor, fmap, domain_mask, edges_num, var_map = self.construct_subgraph(var_id)
         subgraph = weight, variable, factor, fmap, domain_mask, edges_num
         ns.loadFactorGraph(*subgraph)
         # 因子图参数学习
@@ -400,7 +299,7 @@ if __name__ == '__main__':
     with open('data/abtbuy_features.pkl', 'rb') as f:
         features = pickle.load(f)
     EasyInstanceLabeling(variables,features,easys).label_easy_by_file()
-    graph = GML(variables, features, evidential_support_method = 'regression',approximate_probability_method = 'interval', evidence_select_method = 'interval')
+    graph = GML(variables, features, evidential_support_method = 'regression',approximate_probability_method = 'interval', evidence_select_method = 'interval',construct_subgraph_method = 'unaryPara')
     graph.inference()
     graph.score()
     end_time = time.time()
