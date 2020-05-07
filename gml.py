@@ -54,8 +54,8 @@ class GML:
         eval(method)
         # if self.evidential_support_method == 'regression':
         #     self.support.evidential_support_by_regression(update_feature_set)
-        # elif self.evidential_support_method == 'realtion':
-        #     self.support.evidential_support_by_relation(update_feature_set)
+        if self.evidential_support_method == 'realtion':
+            self.support.evidential_support_by_relation(update_feature_set)
         # elif self.evidential_support_method == 'custom':
         #     self.support.evidential_support_by_custom(update_feature_set)
 
@@ -394,13 +394,13 @@ class GML:
 if __name__ == '__main__':
     warnings.filterwarnings('ignore')  #过滤掉warning输出
     begin_time = time.time()
-    easys = helper.EasyInstanceLabeling.load_easy_instance_from_file('data/abtbuy_easys.csv')
-    with open('data/abtbuy_variables.pkl', 'rb') as v:
+    # easys = helper.EasyInstanceLabeling.load_easy_instance_from_file('data/abtbuy_easys.csv')
+    with open('data/variables.pkl', 'rb') as v:
         variables = pickle.load(v)
-    with open('data/abtbuy_features.pkl', 'rb') as f:
+    with open('data/features.pkl', 'rb') as f:
         features = pickle.load(f)
-    EasyInstanceLabeling(variables,features,easys).label_easy_by_file()
-    graph = GML(variables, features, evidential_support_method = 'regression',approximate_probability_method = 'interval', evidence_select_method = 'interval')
+    # EasyInstanceLabeling(variables,features,easys).label_easy_by_file()
+    graph = GML(variables, features, evidential_support_method = 'relation',approximate_probability_method = 'interval', evidence_select_method = 'interval')
     graph.inference()
     graph.score()
     end_time = time.time()
